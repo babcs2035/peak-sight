@@ -28,5 +28,10 @@
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "overrides": {
+      "tar": ">=7.5.2"
+    }
   }
 }
