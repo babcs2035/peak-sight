@@ -48,7 +48,6 @@ export default function ElevationChart({ data, onHoverPointChange }: Props) {
   };
 
   // カスタムツールチップ
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: for simplicity
   const CustomTooltip = ({
     active,
     payload,
@@ -134,7 +133,6 @@ export default function ElevationChart({ data, onHoverPointChange }: Props) {
             margin={{ top: 20, right: 30, left: 0, bottom: 0 }}
           >
             <defs>
-              {/** biome-ignore lint/correctness/useUniqueElementIds: for simplicity */}
               <linearGradient
                 id="elevationGradient"
                 x1="0"

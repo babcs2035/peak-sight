@@ -6,11 +6,11 @@
     "check": "biome check ./frontend/src",
     "format": "biome format --write ./frontend/src"
   },
-  "packageManager": "pnpm@10.18.0",
+  "packageManager": "pnpm@10.24.0",
   "devDependencies": {
-    "@biomejs/biome": "^2.2.5",
+    "@biomejs/biome": "^2.3.8",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.3"
+    "lint-staged": "^16.2.7"
   },
   "lint-staged": {
     "frontend/src/**/*.{js,ts,jsx,tsx}": [
