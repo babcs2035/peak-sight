@@ -186,7 +186,7 @@ def import_mountain_data(
 
 
 def main():
-    json_path = str(Path(__file__).parent.parent / "datas" / "yamareco.json")
+    json_path = str(Path(__file__).parent.parent / "data" / "yamareco.json")
     batch_size = 1000
 
     try:

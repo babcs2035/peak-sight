@@ -24,8 +24,8 @@ from commons.utils import get_coordinates_for_location
 load_dotenv()
 
 # LLMとDB結果のキャッシュディレクトリを設定
-LLM_CACHE_DIR = Path(__file__).parent.parent / "datas" / "bears_cache" / "llm"
-DB_CACHE_DIR = Path(__file__).parent.parent / "datas" / "bears_cache" / "db"
+LLM_CACHE_DIR = Path(__file__).parent.parent / "data" / "bears_cache" / "llm"
+DB_CACHE_DIR = Path(__file__).parent.parent / "data" / "bears_cache" / "db"
 LLM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 

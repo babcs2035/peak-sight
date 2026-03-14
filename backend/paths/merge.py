@@ -16,9 +16,9 @@ from tqdm import tqdm
 # =============================================================================
 # 定数定義
 # =============================================================================
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "../datas/geometry_cache")
-ORIGINAL_PATHS_DIR = os.path.join(os.path.dirname(__file__), "../datas/paths")
-OUTPUT_PATHS_DIR = os.path.join(os.path.dirname(__file__), "../datas/paths_merged")
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "../data/geometry_cache")
+ORIGINAL_PATHS_DIR = os.path.join(os.path.dirname(__file__), "../data/paths")
+OUTPUT_PATHS_DIR = os.path.join(os.path.dirname(__file__), "../data/paths_merged")
 
 EPSILON_H_METERS = 80
 EPSILON_V_METERS = 50
@@ -63,7 +63,7 @@ def calculate_way_length(geometry):
 
 
 @functools.lru_cache(maxsize=None)
-def get_elevation(lat, lon, cache_dir="/app/datas/elevation_cache"):
+def get_elevation(lat, lon, cache_dir="/app/data/elevation_cache"):
     """標高データをキャッシュから取得"""
     cache_key = f"{lat:.6f}_{lon:.6f}.pkl"
     cache_path = Path(cache_dir)

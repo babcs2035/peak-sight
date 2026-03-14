@@ -11,7 +11,7 @@ DOMAIN_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem/"
 DEFAULT_ZOOM = 14
 
 
-def fetch_dem_data(z: int, x: int, y: int, cache_dir: str = "/app/datas/dem_cache") -> dict | None:
+def fetch_dem_data(z: int, x: int, y: int, cache_dir: str = "/app/data/dem_cache") -> dict | None:
     """
     指定されたz/x/y座標のDEMデータを取得（ローカルキャッシュ対応）
 

@@ -214,7 +214,7 @@ def main():
     """メイン関数"""
 
     # データフォルダのパスを設定
-    data_folder = Path(__file__).parent.parent / "datas" / "paths_merged"
+    data_folder = Path(__file__).parent.parent / "data" / "paths_merged"
     print(PathModel.objects.count())
 
     # フォルダ存在チェック

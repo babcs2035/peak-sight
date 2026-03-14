@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - peak-sight-django-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -28,7 +28,7 @@ services:
       - "127.0.0.1:${API_PORT:-8200}:${API_PORT:-8200}"
     volumes:
       - .:/app:cached
-      - ../backend/datas:/datas:cached
+      - ../backend/data:/data:cached
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
