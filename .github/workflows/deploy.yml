@@ -70,6 +70,13 @@ jobs:
           cp mise.toml deploy_package/
           tar -czf deploy.tar.gz -C deploy_package .
 
+      - name: Setup Tailscale
+        uses: tailscale/github-action@main
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
       - name: Deploy to VPS via SCP
         uses: appleboy/scp-action@master
         with:
