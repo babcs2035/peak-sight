@@ -4,14 +4,11 @@ from math import atan2, cos, radians, sin, sqrt
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 from geopy.geocoders import Nominatim
 
+from commons.redis_client import cache_get_json, cache_set_json
+
 # ジオコーダーの初期化
 # Nominatim使用時は必ずuser_agentを設定する
 geolocator = Nominatim(user_agent="bear_sighting_app_v1", domain="nominatim.openstreetmap.org")
-
-# ジオコーディング結果のキャッシュ
-# 同じ場所を複数回検索することを避けるため
-# より堅牢な実装にはRedisやデータベースの使用を検討
-LOCATION_CACHE: dict[str, tuple[float, float] | None] = {}
 
 
 def get_coordinates_for_location(prefecture: str | None, city: str | None) -> tuple[float, float] | None:
@@ -30,9 +27,14 @@ def get_coordinates_for_location(prefecture: str | None, city: str | None) -> tu
     else:
         query = f"{city}, {prefecture}, Japan"
 
-    # キャッシュの確認
-    if query in LOCATION_CACHE:
-        return LOCATION_CACHE[query]
+    # Redisキャッシュの確認
+    cache_key = f"geocode:{query}"
+    cached = cache_get_json(cache_key)
+    if cached is not None:
+        # "NOT_FOUND" センチネル値の場合は None を返す
+        if cached == "NOT_FOUND":
+            return None
+        return tuple(cached)
 
     try:
         # Nominatim APIへのリクエスト（レート制限あり）
@@ -40,13 +42,13 @@ def get_coordinates_for_location(prefecture: str | None, city: str | None) -> tu
         location_data = geolocator.geocode(query, timeout=5.0)
 
         if location_data:
-            # 取得成功時は結果をキャッシュに保存
+            # 取得成功時は結果をRedisにキャッシュ
             result = (location_data.latitude, location_data.longitude)
-            LOCATION_CACHE[query] = result
+            cache_set_json(cache_key, list(result))
             return result
         else:
             # 取得失敗時もキャッシュに保存（再検索を避けるため）
-            LOCATION_CACHE[query] = None
+            cache_set_json(cache_key, "NOT_FOUND")
             return None
 
     except (GeocoderTimedOut, GeocoderUnavailable) as e:

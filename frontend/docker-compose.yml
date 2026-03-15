@@ -8,6 +8,12 @@ services:
     volumes:
       - peak-sight-redis-data:/data
     restart: always
+    networks:
+      - peak-sight-net
 
 volumes:
   peak-sight-redis-data:
+
+networks:
+  peak-sight-net:
+    name: peak-sight-net

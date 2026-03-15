@@ -9,6 +9,8 @@ from rest_framework.response import Response
 
 from commons.utils import calculate_distance
 
+from commons.redis_client import cache_get_json, cache_set_json
+
 from .models import Path, PathGeometry, PathGeometryOrder
 from .serializers import PathDetailSerializer, PathSerializer
 from .utils import fetch_all_dem_data_from_bbox, get_nearest_elevation
@@ -171,7 +173,13 @@ class PathViewSet(viewsets.ReadOnlyModelViewSet):
         description="指定されたIDのPathの詳細情報を取得（標高グラフデータ付き）",
     )
     def retrieve(self, request, pk=None):
-        """指定されたIDのPathの詳細情報を取得（標高グラフデータ付き）"""
+        """指定されたIDのPathの詳細情報を取得（標高グラフデータ付き・Redisキャッシュ対応）"""
+        # Redisキャッシュから取得を試行
+        cache_key = f"path_detail:{pk}"
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return Response(cached)
+
         try:
             path = Path.objects.prefetch_related("geometry_orders__geometry", "tags").get(osm_id=pk)
         except Path.DoesNotExist:
@@ -180,7 +188,12 @@ class PathViewSet(viewsets.ReadOnlyModelViewSet):
         # 標高データを計算
         path_detail_data = self._get_elevation_data(path)
         serializer = PathDetailSerializer(path_detail_data)
-        return Response(serializer.data)
+        response_data = serializer.data
+
+        # Redisにキャッシュを保存
+        cache_set_json(cache_key, response_data)
+
+        return Response(response_data)
 
     def _get_elevation_data(self, path: Path) -> dict:
         """

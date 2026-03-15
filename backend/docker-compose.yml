@@ -33,9 +33,17 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      REDIS_URL: redis://redis:6379
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - default
+      - peak-sight-net
 
 volumes:
   peak-sight-django-db-data:
+
+networks:
+  peak-sight-net:
+    external: true

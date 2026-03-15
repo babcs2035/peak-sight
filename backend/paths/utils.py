@@ -1,40 +1,36 @@
 """Path関連のユーティリティ関数"""
 
 import math
-import pickle
 import time
-from pathlib import Path
 
 import requests
+
+from commons.redis_client import cache_get_json, cache_set_json
 
 DOMAIN_URL = "https://cyberjapandata.gsi.go.jp/xyz/dem/"
 DEFAULT_ZOOM = 14
 
 
-def fetch_dem_data(z: int, x: int, y: int, cache_dir: str = "/app/data/dem_cache") -> dict | None:
+def fetch_dem_data(z: int, x: int, y: int) -> dict | None:
     """
-    指定されたz/x/y座標のDEMデータを取得（ローカルキャッシュ対応）
+    指定されたz/x/y座標のDEMデータを取得（Redisキャッシュ対応）
 
     Args:
         z: ズームレベル
         x: X座標
         y: Y座標
-        cache_dir: ローカルキャッシュディレクトリ（デフォルト: "dem_cache"）
 
     Returns:
         dict: (i, j) -> elevation のマッピング
         None: エラー時
     """
-    cache_key = f"dem_{z}_{x}_{y}.pkl"
-    cache_path = Path(cache_dir) / cache_key
+    cache_key = f"dem:{z}:{x}:{y}"
 
-    # ローカルキャッシュから読み込み
-    if cache_path.exists():
-        try:
-            with open(cache_path, "rb") as f:
-                return pickle.loads(f.read())
-        except Exception as e:
-            print(f"Failed to load local cache {cache_path}: {e}")
+    # Redisキャッシュから読み込み
+    cached = cache_get_json(cache_key)
+    if cached is not None:
+        # JSON キーは文字列 "i_j" 形式 → タプル (i, j) に復元
+        return {tuple(int(v) for v in k.split("_")): val for k, val in cached.items()}
 
     url = f"{DOMAIN_URL}{z}/{x}/{y}.txt"
     try:
@@ -51,17 +47,12 @@ def fetch_dem_data(z: int, x: int, y: int, cache_dir: str = "/app/data/dem_cache
             for j, value in enumerate(row):
                 res[(i, j)] = value
 
-        # ローカルキャッシュに保存
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, "wb") as f:
-                f.write(pickle.dumps(res))
-        except Exception as e:
-            print(f"Failed to save local cache {cache_path}: {e}")
+        # Redisにキャッシュを保存（キーを "i_j" 文字列に変換）
+        json_data = {f"{i}_{j}": val for (i, j), val in res.items()}
+        cache_set_json(cache_key, json_data)
 
         return res
     except requests.exceptions.RequestException:
-        # print(f"Failed to fetch DEM data from {url}: {e}")
         return None
 
 
