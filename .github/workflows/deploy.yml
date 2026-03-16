@@ -6,70 +6,71 @@ on:
       - main
   workflow_dispatch:
 
-jobs:
-  deploy:
-    name: Deploy
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
+  packages: write
 
+jobs:
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
 
-      - name: Setup mise
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+
+      # Convert github.repository_owner to lowercase to avoid Docker naming issues
+      - name: Lowercase Repository Owner
         run: |
-          curl https://mise.run | sh
-          echo "$HOME/.local/share/mise/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
-          mise install
+          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
-      - name: Create frontend .env
-        run: |
-          cd frontend
-          cat > .env << EOF
-          NEXT_PUBLIC_FULL_URL=${{ secrets.NEXT_PUBLIC_FULL_URL }}
-          NEXT_PUBLIC_BACKEND_URL=${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
-          MAPTILER_KEY=${{ secrets.MAPTILER_KEY }}
-          REDIS_URL=${{ secrets.REDIS_URL }}
-          EOF
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.deploy
+          platforms: linux/arm64
+          push: true
+          tags: ghcr.io/${{ env.REPO_OWNER }}/peak-sight:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_FULL_URL=${{ secrets.NEXT_PUBLIC_FULL_URL }}
+            NEXT_PUBLIC_BACKEND_URL=${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
+            NEXT_PUBLIC_BASE_PATH=${{ secrets.NEXT_PUBLIC_BASE_PATH }}
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            FRONTEND_PORT=${{ secrets.FRONTEND_PORT }}
+            BACKEND_PORT=${{ secrets.API_PORT }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          pnpm install --frozen-lockfile
+  deploy:
+    name: Deploy Image to VPS
+    runs-on: ubuntu-latest
+    needs: build-and-push
 
-      - name: Build frontend
-        run: |
-          cd frontend
-          pnpm build
-
-      - name: Create deployment package
-        run: |
-          mkdir -p deploy_package/frontend
-          
-          # Frontend build artifacts
-          cp -r frontend/.next/standalone deploy_package/frontend/
-          cp frontend/package.json deploy_package/frontend/
-          cp frontend/pnpm-lock.yaml deploy_package/frontend/
-          cp frontend/pnpm-workspace.yaml deploy_package/frontend/
-          cp frontend/pm2.config.cjs deploy_package/frontend/
-
-          # Backend files
-          mkdir -p deploy_package/backend
-          cp -r backend/bear deploy_package/backend/
-          cp -r backend/collectmap deploy_package/backend/
-          cp -r backend/commons deploy_package/backend/
-          cp -r backend/mountains deploy_package/backend/
-          cp -r backend/paths deploy_package/backend/
-          cp backend/docker-compose.yml deploy_package/backend/
-          cp backend/Dockerfile deploy_package/backend/
-          cp backend/manage.py deploy_package/backend/
-          cp backend/pyproject.toml deploy_package/backend/
-          cp backend/uv.lock deploy_package/backend/
-          
-          # Create tarball
-          cp mise.toml deploy_package/
-          tar -czf deploy.tar.gz -C deploy_package .
-
+    steps:
       - name: Setup Tailscale
         uses: tailscale/github-action@main
         with:
@@ -77,17 +78,12 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Deploy to VPS via SCP
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          source: "deploy.tar.gz"
-          target: ${{ secrets.DEPLOY_TARGET }}
+      # Need lowercase repo owner for pulling
+      - name: Lowercase Repository Owner
+        run: |
+          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
-      - name: Extract and restart services on VPS
+      - name: Pull & Run Image on VPS
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -96,20 +92,51 @@ jobs:
           port: ${{ secrets.DEPLOY_PORT }}
           script: |
             set -e
+
+            IMAGE="ghcr.io/${{ env.REPO_OWNER }}/peak-sight:latest"
+
+            # Login to registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Extract deployment package
-            cd ${{ secrets.DEPLOY_TARGET }}
-            tar -xzf deploy.tar.gz
-            rm deploy.tar.gz
-            ~/.local/bin/mise install
+            # Pull the completely built image
+            docker pull $IMAGE
             
-            # Restart backend (Docker)
-            ~/.local/bin/mise backend-uv || true
-            ~/.local/bin/mise start-backend
+            # Stop existing containers if they exist
+            docker stop peak-sight || true
+            docker rm peak-sight || true
+            docker stop peak-sight-redis-exporter || true
+            docker rm peak-sight-redis-exporter || true
+
+            # Create network for interconnection
+            docker network create peak-sight-net || true
+
+            # Set configuration parameters from GitHub Secrets
+            FRONTEND_PORT_SECRET="${{ secrets.FRONTEND_PORT }}"
+            API_PORT_SECRET="${{ secrets.API_PORT }}"
             
-            # Restart frontend (PM2)
-            cd ./frontend
-            ~/.volta/bin/pm2 restart pm2.config.cjs --update-env || ~/.volta/bin/pm2 start pm2.config.cjs
-            
-            # Cleanup
-            echo "Deployment completed successfully"
+            export FRONTEND_PORT=${FRONTEND_PORT_SECRET:-3400}
+            export API_PORT=${API_PORT_SECRET:-8200}
+            export API_BASE_PATH="${{ secrets.API_BASE_PATH }}"
+
+            # Run peak-sight container (Bind only to localhost to close external exposure)
+            docker run -d --name peak-sight \
+              --restart unless-stopped \
+              --network peak-sight-net \
+              --env-file .env \
+              -e PORT=${FRONTEND_PORT} \
+              -e API_PORT=${API_PORT} \
+              -e API_BASE_PATH="${API_BASE_PATH}" \
+              -p 127.0.0.1:${FRONTEND_PORT}:${FRONTEND_PORT} \
+              -p 127.0.0.1:${API_PORT}:${API_PORT} \
+              $IMAGE
+
+            # Run Bitnami Redis Exporter (Bind only to localhost)
+            docker run -d --name peak-sight-redis-exporter \
+              --restart unless-stopped \
+              --network peak-sight-net \
+              -p 127.0.0.1:9121:9121 \
+              -e REDIS_ADDR=redis://peak-sight:6379 \
+              bitnami/redis-exporter:latest
+
+            docker logout ghcr.io
+            echo "Deployment to VPS completed successfully!"

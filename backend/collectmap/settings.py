@@ -19,6 +19,11 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent.parent.parent / "backend" / ".env"
 load_dotenv(dotenv_path=env_path)
 
+api_base = os.getenv("API_BASE_PATH", "")
+if api_base:
+    FORCE_SCRIPT_NAME = api_base
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 

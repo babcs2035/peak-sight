@@ -42,7 +42,9 @@ RUN uv sync --frozen
 COPY . .
 
 # ポートを公開
-EXPOSE 8000
+ARG API_PORT=8200
+ENV API_PORT=${API_PORT}
+EXPOSE ${API_PORT}
 
 # エントリーポイント
-CMD ["uv", "run", "python", "manage.py", "runserver", "0.0.0.0:8200"]
+CMD ["sh", "-c", "uv run python manage.py runserver 0.0.0.0:${API_PORT}"]

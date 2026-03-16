@@ -65,9 +65,69 @@ bash -lc 'uv run python -u commons/import_bear_sight.py'
 """
 depends = ["prepare-db"]
 
+[tasks.start-frontend]
+run = "cd frontend && docker compose up --build -d"
+description = "Start frontend services (Next.js + Redis) using Docker Compose"
+
 [tasks.frontend-setup]
 run = "cd frontend && pnpm install && docker compose up -d"
 
 [tasks.frontend-dev]
-run = "cd frontend && pnpm dev"
-depends = ["frontend-setup"]
+run = """
+cd frontend && bash -c '
+  docker compose stop app || true
+  docker compose up -d redis
+  set -a
+  [ -f .env ] && source .env
+  set +a
+  pnpm dev
+'
+"""
+
+[tasks.build-preview]
+description = "Build the All-in-One deployment Docker image locally for testing"
+run = """
+bash -c '
+  set -a
+  source frontend/.env
+  set +a
+  docker build -t peak-sight-preview -f Dockerfile.deploy \\
+    --build-arg NEXT_PUBLIC_FULL_URL=${NEXT_PUBLIC_FULL_URL:-http://localhost:3400/peak-sight} \\
+    --build-arg NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8200} \\
+    --build-arg NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH:-/peak-sight} \\
+    --build-arg POSTGRES_DB=${POSTGRES_DB:-app} \\
+    --build-arg POSTGRES_USER=${POSTGRES_USER:-app} \\
+    --build-arg POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-app} \\
+    .
+'
+"""
+
+[tasks.start-preview]
+description = "Start the locally built All-in-One deployment image with Redis Exporter"
+run = """
+bash -c '
+  docker stop peak-sight-preview || true
+  docker rm peak-sight-preview || true
+  docker stop peak-sight-preview-redis-exporter || true
+  docker rm peak-sight-preview-redis-exporter || true
+  docker network create peak-sight-preview-net || true
+
+  docker run -d --name peak-sight-preview \
+    --network peak-sight-preview-net \
+    -p 127.0.0.1:3400:3400 \
+    -p 127.0.0.1:8200:8200 \
+    --env-file frontend/.env \
+    --env-file backend/.env \
+    peak-sight-preview
+
+  docker run -d --name peak-sight-preview-redis-exporter \
+    --network peak-sight-preview-net \
+    -p 127.0.0.1:9121:9121 \
+    -e REDIS_ADDR=redis://peak-sight-preview:6379 \
+    bitnami/redis-exporter:latest
+
+  echo "Containers started!"
+  echo "- App logs: docker logs -f peak-sight-preview"
+  echo "- Exporter logs: docker logs -f peak-sight-preview-redis-exporter"
+'
+"""

@@ -20,10 +20,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        API_PORT: ${API_PORT:-8200}
     container_name: peak-sight-django-api
     env_file:
       - .env
-    command: sh -c "uv run python manage.py migrate && uv run python manage.py runserver 0.0.0.0:${API_PORT:-8000}"
+    command: sh -c "uv run python manage.py migrate && uv run python manage.py runserver 0.0.0.0:${API_PORT:-8200}"
     ports:
       - "127.0.0.1:${API_PORT:-8200}:${API_PORT:-8200}"
     volumes:

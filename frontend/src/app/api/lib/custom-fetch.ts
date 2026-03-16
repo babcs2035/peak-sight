@@ -16,7 +16,7 @@ const getBody = <T>(c: Response | Request): Promise<T> => {
 // NOTE: Update just base url
 const getUrl = (contextUrl: string): string => {
   const baseUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8200";
   const url = new URL(contextUrl, baseUrl);
   const pathname = url.pathname;
   const search = url.search;

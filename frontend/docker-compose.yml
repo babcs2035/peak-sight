@@ -1,4 +1,28 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_FULL_URL: ${NEXT_PUBLIC_FULL_URL}
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/peak-sight}
+        PORT: ${PORT:-3400}
+    container_name: peak-sight-frontend
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      PORT: ${PORT:-3400}
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/peak-sight}
+    ports:
+      - "127.0.0.1:${PORT:-3400}:${PORT:-3400}"
+    depends_on:
+      - redis
+    networks:
+      - peak-sight-net
+    restart: always
+
   redis:
     image: redis/redis-stack:latest
     container_name: peak-sight-redis
