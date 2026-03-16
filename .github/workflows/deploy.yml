@@ -10,24 +10,95 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # ── CI Gates ────────────────────────────────────────────────
+  lint:
+    name: Format & Lint Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Setup mise
+        uses: jdx/mise-action@main
+        with:
+          install: true
+
+      - name: Cache pnpm store
+        uses: actions/cache@main
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Format & Lint Check with Biome
+        run: pnpm biome ci src/
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Setup mise
+        uses: jdx/mise-action@main
+        with:
+          install: true
+
+      - name: Cache pnpm store
+        uses: actions/cache@main
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Type Check
+        run: pnpm type-check
+
+  # ── Build & Push Docker Image ───────────────────────────────
   build-and-push:
     name: Build & Push Image
     runs-on: ubuntu-latest
+    needs: [lint, type-check]
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@main
+
+      - name: Lowercase repository owner
+        run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@master
         with:
           platforms: linux/arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@master
 
       - name: Log in to the Container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@master
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -35,23 +106,18 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@master
         with:
           images: ghcr.io/${{ github.repository }}
 
-      # Convert github.repository_owner to lowercase to avoid Docker naming issues
-      - name: Lowercase Repository Owner
-        run: |
-          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
-
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@master
         with:
           context: .
           file: Dockerfile.deploy
           platforms: linux/arm64
           push: true
-          tags: ghcr.io/${{ env.REPO_OWNER }}/peak-sight:latest
+          tags: ghcr.io/${{ env.REPO_OWNER_LC }}/peak-sight:latest
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             NEXT_PUBLIC_FULL_URL=${{ secrets.NEXT_PUBLIC_FULL_URL }}
@@ -65,23 +131,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # ── Deploy to VPS ──────────────────────────────────────────
   deploy:
     name: Deploy Image to VPS
     runs-on: ubuntu-latest
     needs: build-and-push
 
     steps:
+      - name: Lowercase repository owner
+        run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
+
       - name: Setup Tailscale
         uses: tailscale/github-action@main
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-
-      # Need lowercase repo owner for pulling
-      - name: Lowercase Repository Owner
-        run: |
-          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
       - name: Pull & Run Image on VPS
         uses: appleboy/ssh-action@master
@@ -93,7 +158,9 @@ jobs:
           script: |
             set -e
 
-            IMAGE="ghcr.io/${{ env.REPO_OWNER }}/peak-sight:latest"
+            cd ${{ secrets.DEPLOY_TARGET }}
+
+            IMAGE="ghcr.io/${{ env.REPO_OWNER_LC }}/peak-sight:latest"
 
             # Login to registry
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
