@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@main
+        with:
+          lfs: true
 
       - name: Setup mise
         uses: jdx/mise-action@main
@@ -56,6 +58,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@main
+        with:
+          lfs: true
 
       - name: Setup mise
         uses: jdx/mise-action@main
@@ -85,6 +89,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@main
+        with:
+          lfs: true
 
       - name: Lowercase repository owner
         run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
