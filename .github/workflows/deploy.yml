@@ -15,9 +15,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── CI Gates ────────────────────────────────────────────────
-  lint:
-    name: Format & Lint Check
+  # ── CI Check Gate ──────────────────────────────────────────
+  ci:
+    name: CI Checks (Lint & Type Check)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,57 +25,26 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
+        # CI checks don't need large JSON data from LFS
         with:
-          lfs: true
+          lfs: false
 
-      - name: Setup mise
-        uses: jdx/mise-action@main
-        with:
-          install: true
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
 
-      - name: Cache pnpm store
-        uses: actions/cache@main
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
+          node-version: "24.10.0"
+          cache: 'pnpm'
+          cache-dependency-path: './frontend/pnpm-lock.yaml'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Format & Lint Check with Biome
+      - name: Run Format & Lint Check
         run: pnpm biome ci src/
-
-  type-check:
-    name: Type Check
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./frontend
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@main
-        with:
-          lfs: true
-
-      - name: Setup mise
-        uses: jdx/mise-action@main
-        with:
-          install: true
-
-      - name: Cache pnpm store
-        uses: actions/cache@main
-        with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Run Type Check
         run: pnpm type-check
@@ -84,11 +53,11 @@ jobs:
   build-and-push:
     name: Build & Push Image
     runs-on: ubuntu-latest
-    needs: [lint, type-check]
-
+    needs: ci
+    
     steps:
       - name: Checkout repository
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
         with:
           lfs: true
 
@@ -96,15 +65,15 @@ jobs:
         run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@master
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@master
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to the Container registry
-        uses: docker/login-action@master
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -112,12 +81,12 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@master
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@master
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.deploy
@@ -148,14 +117,14 @@ jobs:
         run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
       - name: Setup Tailscale
-        uses: tailscale/github-action@main
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
       - name: Pull & Run Image on VPS
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -171,39 +140,33 @@ jobs:
             # Login to registry
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Pull the completely built image
+            # Pull the latest image
             docker pull $IMAGE
             
-            # Stop existing containers if they exist
-            docker stop peak-sight || true
-            docker rm peak-sight || true
-            docker stop peak-sight-redis-exporter || true
-            docker rm peak-sight-redis-exporter || true
+            # Stop existing containers
+            docker stop peak-sight peak-sight-redis-exporter || true
+            docker rm peak-sight peak-sight-redis-exporter || true
 
-            # Create network for interconnection
+            # Networking
             docker network create peak-sight-net || true
 
-            # Set configuration parameters from GitHub Secrets
-            FRONTEND_PORT_SECRET="${{ secrets.FRONTEND_PORT }}"
-            API_PORT_SECRET="${{ secrets.API_PORT }}"
+            # Env Setup
+            FE_PORT=${{ secrets.FRONTEND_PORT }}
+            API_PORT=${{ secrets.API_PORT }}
             
-            export FRONTEND_PORT=${FRONTEND_PORT_SECRET:-3400}
-            export API_PORT=${API_PORT_SECRET:-8200}
-            export API_BASE_PATH="${{ secrets.API_BASE_PATH }}"
-
-            # Run peak-sight container (Bind only to localhost to close external exposure)
+            # Run Application
             docker run -d --name peak-sight \
               --restart unless-stopped \
               --network peak-sight-net \
               --env-file .env \
-              -e PORT=${FRONTEND_PORT} \
-              -e API_PORT=${API_PORT} \
-              -e API_BASE_PATH="${API_BASE_PATH}" \
-              -p 127.0.0.1:${FRONTEND_PORT}:${FRONTEND_PORT} \
-              -p 127.0.0.1:${API_PORT}:${API_PORT} \
+              -e PORT=${FE_PORT:-3400} \
+              -e API_PORT=${API_PORT:-8200} \
+              -e API_BASE_PATH="${{ secrets.API_BASE_PATH }}" \
+              -p 127.0.0.1:${FE_PORT:-3400}:${FE_PORT:-3400} \
+              -p 127.0.0.1:${API_PORT:-8200}:${API_PORT:-8200} \
               $IMAGE
 
-            # Run Bitnami Redis Exporter (Bind only to localhost)
+            # Run Redis Exporter
             docker run -d --name peak-sight-redis-exporter \
               --restart unless-stopped \
               --network peak-sight-net \
@@ -211,5 +174,33 @@ jobs:
               -e REDIS_ADDR=redis://peak-sight:6379 \
               bitnami/redis-exporter:latest
 
+            # Post-deployment: Initialize DB
+            echo "Waiting for DB to be ready..."
+            ATTEMPTS=0
+            MAX_ATTEMPTS=60
+            until docker exec peak-sight pg_isready -U postgres || [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; do
+              ATTEMPTS=$((ATTEMPTS + 1))
+              sleep 2
+            done
+
+            if [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+              echo "Error: PostgreSQL is not responding."
+              exit 1
+            fi
+
+            echo "Setting up DB and importing data..."
+            PG_USER="${{ secrets.POSTGRES_USER }}"
+            PG_DB="${{ secrets.POSTGRES_DB }}"
+            PG_PASS="${{ secrets.POSTGRES_PASSWORD }}"
+
+            docker exec peak-sight su postgres -c "psql -tc \"SELECT 1 FROM pg_user WHERE usename = '$PG_USER'\" | grep -q 1 || psql -c \"CREATE USER $PG_USER WITH PASSWORD '$PG_PASS';\""
+            docker exec peak-sight su postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = '$PG_DB'\" | grep -q 1 || psql -c \"CREATE DATABASE $PG_DB OWNER $PG_USER;\""
+            docker exec peak-sight su postgres -c "psql -d $PG_DB -c \"CREATE EXTENSION IF NOT EXISTS postgis;\""
+
+            # Migrations & Imports
+            docker exec peak-sight uv run python /app/backend/manage.py migrate
+            docker exec peak-sight bash -c "if [ -f /app/backend/data/yamareco.json ]; then PYTHONPATH=/app/backend uv run python /app/backend/commons/import_mountains.py; fi"
+            docker exec peak-sight bash -c "if ls /app/backend/data/paths_merged/*.json 1> /dev/null 2>&1; then PYTHONPATH=/app/backend uv run python /app/backend/commons/import_paths.py; fi"
+
             docker logout ghcr.io
-            echo "Deployment to VPS completed successfully!"
+            echo "Deployment finished!"

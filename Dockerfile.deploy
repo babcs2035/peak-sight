@@ -5,7 +5,7 @@ ARG BACKEND_PORT=8200
 
 # Stage 1: Frontend Build
 # =============================================================================
-FROM node:24-bookworm AS frontend-builder
+FROM node:24-bookworm-slim AS frontend-builder
 ARG FRONTEND_PORT
 ARG BACKEND_PORT
 
@@ -14,21 +14,24 @@ RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
 
 WORKDIR /build
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml* ./
-RUN pnpm install --frozen-lockfile
+
+# Cache pnpm store across builds
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 COPY frontend/ ./
-# NEXT_PUBLIC_* はビルド時にバンドルに埋め込まれるため ARG で渡す
+
+# NEXT_PUBLIC_* variables for build-time injection
 ARG NEXT_PUBLIC_FULL_URL
 ARG NEXT_PUBLIC_BACKEND_URL
 ARG NEXT_PUBLIC_BASE_PATH
 
-# Set ENV vars with defaults that reference port ARGs (no hardcoded ports)
 ENV NEXT_PUBLIC_FULL_URL=${NEXT_PUBLIC_FULL_URL:-http://localhost:${FRONTEND_PORT}/peak-sight}
 ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL:-http://localhost:${BACKEND_PORT}}
 ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH:-/peak-sight}
+
 RUN pnpm build
 
-# Stage 2: Backend Dependencies & DB Pre-population
+# Stage 2: Backend Build
 # =============================================================================
 FROM python:3.12-slim-bookworm AS backend-builder
 
@@ -36,125 +39,69 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install uv, Postgres, PostGIS, and GDAL dependencies for GeoDjango
-RUN apt-get update && apt-get install -y \
-    postgresql-15 postgresql-15-postgis-3 \
-    gdal-bin libgdal-dev libgeos-dev libproj-dev binutils \
-    curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-# GeoDjango Env Variables (Dynamic path setting)
-# Find the actual paths to avoid hardcoding architecture (x86_64 vs aarch64)
-RUN GDAL_PATH=$(find /usr/lib -name "libgdal.so*" | head -1) && \
-    GEOS_PATH=$(find /usr/lib -name "libgeos_c.so*" | head -1) && \
-    ln -sf $GDAL_PATH /usr/lib/libgdal.so && \
-    ln -sf $GEOS_PATH /usr/lib/libgeos_c.so
-
-ENV GDAL_LIBRARY_PATH=/usr/lib/libgdal.so
-ENV GEOS_LIBRARY_PATH=/usr/lib/libgeos_c.so
 
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen
+
+# Cache uv downloads across builds
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
 
 COPY backend/ ./
 
-# Pre-populate Database
-ARG POSTGRES_DB
-ARG POSTGRES_USER
-ARG POSTGRES_PASSWORD
-
-# Set ENV vars with bash defaults so they work even if ARG is empty string
-ENV PG_DB=${POSTGRES_DB:-app}
-ENV PG_USER=${POSTGRES_USER:-app}
-ENV PG_PASS=${POSTGRES_PASSWORD:-app}
-
-USER postgres
-RUN /etc/init.d/postgresql start && \
-    psql -c "CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';" && \
-    psql -c "CREATE DATABASE ${PG_DB} OWNER ${PG_USER};" && \
-    psql -d ${PG_DB} -c "CREATE EXTENSION postgis;" && \
-    /etc/init.d/postgresql stop
-USER root
-
-# Run data imports using the running postgres instance
-ENV DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${PG_DB}"
-RUN su postgres -c "/etc/init.d/postgresql start" && \
-    PYTHONPATH=/app/backend uv run python manage.py migrate && \
-    if [ -f "data/yamareco.json" ]; then \
-        PYTHONPATH=/app/backend uv run python commons/import_mountains.py; \
-    else \
-        echo "WARNING: backend/data/yamareco.json not found. Mountain data import skipped."; \
-    fi && \
-    if ls data/paths_merged/*.json 1> /dev/null 2>&1; then \
-        PYTHONPATH=/app/backend uv run python commons/import_paths.py; \
-    else \
-        echo "WARNING: no JSON files in backend/data/paths_merged/. Path data import skipped."; \
-    fi && \
-    su postgres -c "/etc/init.d/postgresql stop"
-
-# Stage 3: Final All-in-One Runtime Image
+# Stage 3: Final All-in-One Image
 # =============================================================================
 FROM python:3.12-slim-bookworm
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
+    REDIS_URL="redis://localhost:6379"
 
-# Install required system packages: Postgres (for running db), Redis, Node.js, Supervisor, GDAL
-RUN apt-get update && apt-get install -y \
+# Combine package installs to minimize layers and clear cache
+RUN apt-get update && apt-get install -R -y \
     postgresql-15 postgresql-15-postgis-3 \
     redis-server \
-    curl \
     supervisor \
+    curl \
     gdal-bin libgdal-dev libgeos-dev libproj-dev binutils \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN GDAL_PATH=$(find /usr/lib -name "libgdal.so*" | head -1) && \
-    GEOS_PATH=$(find /usr/lib -name "libgeos_c.so*" | head -1) && \
-    ln -sf $GDAL_PATH /usr/lib/libgdal.so && \
-    ln -sf $GEOS_PATH /usr/lib/libgeos_c.so
-
-ENV GDAL_LIBRARY_PATH=/usr/lib/libgdal.so
-ENV GEOS_LIBRARY_PATH=/usr/lib/libgeos_c.so
+# Detection and symlinking for architecture-independent GDAL/GEOS paths
+RUN for lib in gdal geos_c; do \
+      LIB_PATH=$(find /usr/lib -name "lib${lib}.so*" | head -1); \
+      ln -sf "$LIB_PATH" "/usr/lib/lib${lib}.so"; \
+    done
+ENV GDAL_LIBRARY_PATH=/usr/lib/libgdal.so \
+    GEOS_LIBRARY_PATH=/usr/lib/libgeos_c.so
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# 1. Copy Backend Code & Virtualenv & Data
+# 1. Backend & dependencies
 COPY --from=backend-builder /app/backend /app/backend
 
-# 2. Copy pre-populated PostgreSQL data to exactly where it belongs
-# Remove the empty initialized DB first
-RUN rm -rf /var/lib/postgresql/15/main
-COPY --from=backend-builder --chown=postgres:postgres /var/lib/postgresql/15/main /var/lib/postgresql/15/main
-
-# 3. Copy Frontend Standalone
+# 2. Frontend Standalone
 COPY --from=frontend-builder /build/.next/standalone /app/frontend
 COPY --from=frontend-builder /build/.next/static /app/frontend/.next/static
 COPY --from=frontend-builder /build/public /app/frontend/public
 
-# 4. Copy Supervisor Configuration
-# We will create this file via GitHub Actions or the repo
+# 3. Entrypoint and Supervisor
 COPY entrypoint.sh /app/entrypoint.sh
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
 RUN chmod +x /app/entrypoint.sh
 
-# Configure default values (these can be overridden by docker run --env-file)
+# Dynamic ports from build args
 ARG FRONTEND_PORT
 ARG BACKEND_PORT
-ENV PORT=${FRONTEND_PORT}
-ENV API_PORT=${BACKEND_PORT}
-ENV REDIS_URL="redis://localhost:6379"
-ENV PYTHONPATH=/app/backend
+ENV PORT=${FRONTEND_PORT} \
+    API_PORT=${BACKEND_PORT}
 
-# Ports to expose (Frontend and Backend)
 EXPOSE ${FRONTEND_PORT} ${BACKEND_PORT}
 
 CMD ["/app/entrypoint.sh"]
