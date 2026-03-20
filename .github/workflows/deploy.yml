@@ -196,10 +196,25 @@ jobs:
             docker exec peak-sight su postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = '$PG_DB'\" | grep -q 1 || psql -c \"CREATE DATABASE $PG_DB OWNER $PG_USER;\""
             docker exec peak-sight su postgres -c "psql -d $PG_DB -c \"CREATE EXTENSION IF NOT EXISTS postgis;\""
 
-            # Migrations & Imports
+            # Run Migrations (Synchronously as it is required for app)
             docker exec -w /app/backend peak-sight uv run python manage.py migrate
-            docker exec -w /app/backend peak-sight bash -c "if [ -f data/yamareco.json ]; then uv run python commons/import_mountains.py; fi"
-            docker exec -w /app/backend peak-sight bash -c "if ls data/paths_merged/*.json 1> /dev/null 2>&1; then uv run python commons/import_paths.py; fi"
+
+            # Run Data Imports in the background using screen
+            echo "Starting data imports in the background (screen)..."
+            docker exec -w /app/backend peak-sight screen -d -m bash -c "
+              echo \"--- Start Import: \$(date) ---\" >> import.log;
+              if [ -f data/yamareco.json ]; then 
+                echo 'Mountain data import started...' >> import.log;
+                uv run python commons/import_mountains.py >> import.log 2>&1;
+              fi;
+              if ls data/paths_merged/*.json 1> /dev/null 2>&1; then 
+                echo 'Path data import started...' >> import.log;
+                uv run python commons/import_paths.py >> import.log 2>&1;
+              fi;
+              echo \"--- End Import: \$(date) ---\" >> import.log;
+            "
+            echo "Data import has been started in a background screen session."
+            echo "You can check progress with: docker exec peak-sight tail -f /app/backend/import.log"
 
             docker logout ghcr.io
             echo "Deployment finished!"

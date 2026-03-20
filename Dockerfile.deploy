@@ -66,6 +66,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     redis-server \
     supervisor \
     curl \
+    screen \
     gdal-bin libgdal-dev libgeos-dev libproj-dev binutils \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
