@@ -25,16 +25,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        # CI checks don't need large JSON data from LFS
+        uses: actions/checkout@main
         with:
           lfs: false
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@master
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@main
         with:
           node-version: "24.10.0"
           cache: 'pnpm'
@@ -57,7 +56,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@main
         with:
           lfs: true
 
@@ -65,15 +64,15 @@ jobs:
         run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@master
         with:
           platforms: linux/arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@master
 
       - name: Log in to the Container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@master
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -81,12 +80,12 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@master
         with:
           images: ghcr.io/${{ github.repository }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@master
         with:
           context: .
           file: Dockerfile.deploy
@@ -117,14 +116,14 @@ jobs:
         run: echo "REPO_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
 
       - name: Setup Tailscale
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@main
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
       - name: Pull & Run Image on VPS
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}

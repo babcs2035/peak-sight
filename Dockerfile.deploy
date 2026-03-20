@@ -61,7 +61,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     REDIS_URL="redis://localhost:6379"
 
 # Combine package installs to minimize layers and clear cache
-RUN apt-get update && apt-get install -R -y \
+RUN apt-get update && apt-get install --no-install-recommends -y \
     postgresql-15 postgresql-15-postgis-3 \
     redis-server \
     supervisor \
