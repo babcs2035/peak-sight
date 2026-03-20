@@ -197,9 +197,9 @@ jobs:
             docker exec peak-sight su postgres -c "psql -d $PG_DB -c \"CREATE EXTENSION IF NOT EXISTS postgis;\""
 
             # Migrations & Imports
-            docker exec peak-sight uv run python /app/backend/manage.py migrate
-            docker exec peak-sight bash -c "if [ -f /app/backend/data/yamareco.json ]; then PYTHONPATH=/app/backend uv run python /app/backend/commons/import_mountains.py; fi"
-            docker exec peak-sight bash -c "if ls /app/backend/data/paths_merged/*.json 1> /dev/null 2>&1; then PYTHONPATH=/app/backend uv run python /app/backend/commons/import_paths.py; fi"
+            docker exec -w /app/backend peak-sight uv run python manage.py migrate
+            docker exec -w /app/backend peak-sight bash -c "if [ -f data/yamareco.json ]; then uv run python commons/import_mountains.py; fi"
+            docker exec -w /app/backend peak-sight bash -c "if ls data/paths_merged/*.json 1> /dev/null 2>&1; then uv run python commons/import_paths.py; fi"
 
             docker logout ghcr.io
             echo "Deployment finished!"
