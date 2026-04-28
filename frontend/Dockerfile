@@ -1,9 +1,9 @@
 # =============================================================================
 # Stage 1: 依存関係のインストール
 # =============================================================================
-FROM node:24-slim AS deps
+FROM node:25.9.0-slim AS deps
 
-RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
 WORKDIR /app
 
@@ -13,9 +13,9 @@ RUN pnpm install --frozen-lockfile
 # =============================================================================
 # Stage 2: Next.js ビルド
 # =============================================================================
-FROM node:24-slim AS builder
+FROM node:25.9.0-slim AS builder
 
-RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ RUN pnpm build
 # =============================================================================
 # Stage 3: Production ランタイム
 # =============================================================================
-FROM node:24-slim AS runner
+FROM node:25.9.0-slim AS runner
 
 WORKDIR /app
 

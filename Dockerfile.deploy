@@ -10,7 +10,7 @@ ARG FRONTEND_PORT
 ARG BACKEND_PORT
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
 WORKDIR /build
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml* ./
