@@ -1,6 +1,7 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
+import type { GeoJSON } from "geojson";
 import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { renderToString } from "react-dom/server";
@@ -337,7 +338,7 @@ export const MapTerrain = ({
           features?: maplibregl.MapGeoJSONFeature[];
         },
       ) => {
-        if (!e.features || !e.features[0]) return;
+        if (!e.features?.[0]) return;
         const feature = e.features[0];
         const pathId = feature.properties?.id;
 

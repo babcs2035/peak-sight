@@ -5,12 +5,12 @@ ARG BACKEND_PORT=8200
 
 # Stage 1: Frontend Build
 # =============================================================================
-FROM node:24-bookworm-slim AS frontend-builder
+FROM node:26.3.0-slim AS frontend-builder
 ARG FRONTEND_PORT
 ARG BACKEND_PORT
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
+RUN npm install -g pnpm@11.8.0
 
 WORKDIR /build
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml* ./

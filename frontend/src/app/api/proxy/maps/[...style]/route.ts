@@ -7,7 +7,7 @@ export async function GET(
   context: { params: Promise<{ style: string[] }> },
 ) {
   const params = await context.params;
-  if (!params || !params.style) {
+  if (!params?.style) {
     return new NextResponse("Invalid request: Missing path parameters", {
       status: 400,
     });

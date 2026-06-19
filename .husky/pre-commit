@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Pre-commit hook: format, lint, and typecheck the frontend code
+# pnpm is installed via mise; use the `latest` symlink for version stability
+# Use absolute paths since husky may run from a different working directory
+
+export PATH="$HOME/.local/share/mise/installs/npm-pnpm/latest/bin:$PATH"
+
+cd "$(dirname "$0")/../frontend"
+pnpm format
+pnpm lint
+pnpm typecheck

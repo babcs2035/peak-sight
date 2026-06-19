@@ -55,7 +55,7 @@ export default function ElevationChart({ data, onHoverPointChange }: Props) {
     active?: boolean;
     payload?: { payload: Point }[];
   }) => {
-    if (active && payload && payload.length) {
+    if (active && payload?.length) {
       const point = payload[0].payload;
       const distance = point.x;
       const elevation = point.y;

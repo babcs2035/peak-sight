@@ -1,3 +1,10 @@
 onlyBuiltDependencies:
   - '@tailwindcss/oxide'
   - sharp
+allowBuilds:
+  sharp: true
+
+strictDepBuilds: true
+minimumReleaseAge: 1440
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
